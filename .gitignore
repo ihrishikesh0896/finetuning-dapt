@@ -1,0 +1,6 @@
+.env/
+.vscode/
+.claude/
+CLAUDE.md
+PROMPT.md
+

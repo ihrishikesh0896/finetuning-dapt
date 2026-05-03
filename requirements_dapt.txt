@@ -1,0 +1,23 @@
+# ── Training stack (CUDA GPU required — A100 40 GB or 2×A10G) ─────────────────
+# Do NOT install on Apple Silicon / CPU-only machines for training.
+torch>=2.2.0                # install the CUDA wheel: pip install torch --index-url https://download.pytorch.org/whl/cu121
+transformers>=4.40.0
+datasets>=2.18.0
+trl>=0.8.6
+peft>=0.10.0
+accelerate>=0.28.0
+bitsandbytes>=0.43.0        # CUDA-only; will silently fail on MPS/CPU
+
+# ── Inference / export (runs on Apple Silicon via Metal) ───────────────────────
+# On M1/M2/M3: pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/metal
+llama-cpp-python>=0.2.56
+
+# ── Corpus ingestion (runs locally on any machine) ────────────────────────────
+requests>=2.31.0
+jsonlines>=4.0.0
+gitpython>=3.1.41
+tqdm>=4.66.0
+
+# ── Tokenizer deps ─────────────────────────────────────────────────────────────
+sentencepiece>=0.2.0
+protobuf>=4.25.3
