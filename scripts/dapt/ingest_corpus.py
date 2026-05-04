@@ -20,8 +20,9 @@ from pathlib import Path
 OUTPUT_DIR = Path("data/dapt_corpus")
 GHSA_REPO_DIR = Path("data/_ghsa_repo")
 
-NVD_BASE = "https://nvd.nist.gov/feeds/json/cve/1.1"
-NVD_YEARS = list(range(2018, 2025)) + ["recent"]
+NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+NVD_PAGE_SIZE = 2000      # max allowed per request
+NVD_RATE_SLEEP = 6        # seconds between pages (free tier: 5 req/30 s)
 
 OSV_BASE = "https://storage.googleapis.com/osv-vulnerabilities"
 OSV_ECOSYSTEMS = ["PyPI", "npm", "Maven", "Go"]
@@ -36,22 +37,29 @@ def _write_jsonl(path: Path, records: list[dict]) -> int:
     return len(records)
 
 
-# ── 1. NVD ────────────────────────────────────────────────────────────────────
+# ── 1. NVD (2.0 API) ──────────────────────────────────────────────────────────
 
-def _parse_nvd_item(item: dict) -> dict | None:
+def _parse_nvd_item_v2(vuln: dict) -> dict | None:
+    """Parse one entry from NVD 2.0 API response."""
     try:
-        cve_id = item["cve"]["CVE_data_meta"]["ID"]
-        descs = item["cve"]["description"]["description_data"]
+        cve = vuln["cve"]
+        cve_id = cve["id"]
+        descs = cve.get("descriptions", [])
         description = next((d["value"] for d in descs if d.get("lang") == "en"), "")
-        impact = item.get("impact", {})
+
+        metrics = cve.get("metrics", {})
         cvss_score = (
-            impact.get("baseMetricV3", {}).get("cvssV3", {}).get("baseScore")
-            or impact.get("baseMetricV2", {}).get("cvssV2", {}).get("baseScore")
+            (metrics.get("cvssMetricV31") or metrics.get("cvssMetricV30") or [{}])[0]
+            .get("cvssData", {}).get("baseScore")
+            or (metrics.get("cvssMetricV2") or [{}])[0]
+            .get("cvssData", {}).get("baseScore")
         )
+
         cpes = [
-            m["cpe23Uri"]
-            for node in item.get("configurations", {}).get("nodes", [])
-            for m in node.get("cpe_match", [])
+            m["criteria"]
+            for cfg in cve.get("configurations", [])
+            for node in cfg.get("nodes", [])
+            for m in node.get("cpeMatch", [])
             if m.get("vulnerable")
         ]
         return {
@@ -61,29 +69,46 @@ def _parse_nvd_item(item: dict) -> dict | None:
             "cvss_score": cvss_score,
             "affected_versions": cpes[:20],
         }
-    except (KeyError, StopIteration):
+    except (KeyError, IndexError):
         return None
 
 
 def ingest_nvd():
+    import time
     import requests  # noqa: PLC0415
+    from tqdm import tqdm  # noqa: PLC0415
+
     out = OUTPUT_DIR / "nvd.jsonl"
-    print(f"[NVD] → {out}")
+    print(f"[NVD 2.0] → {out}")
+
+    session = requests.Session()
+    session.headers["User-Agent"] = "dapt-corpus-builder/1.0"
+
+    # First request to get total
+    resp = session.get(NVD_API, params={"resultsPerPage": 1, "startIndex": 0}, timeout=30)
+    resp.raise_for_status()
+    total = resp.json().get("totalResults", 0)
+    print(f"  Total CVEs: {total}")
+
     records = []
-    for year in NVD_YEARS:
-        url = f"{NVD_BASE}/nvdcve-1.1-{year}.json.gz"
-        print(f"  fetching {url}")
+    pages = range(0, total, NVD_PAGE_SIZE)
+    for start in tqdm(pages, desc="NVD pages"):
         try:
-            resp = requests.get(url, timeout=120)
+            resp = session.get(
+                NVD_API,
+                params={"resultsPerPage": NVD_PAGE_SIZE, "startIndex": start},
+                timeout=60,
+            )
             resp.raise_for_status()
-            with gzip.open(io.BytesIO(resp.content)) as gz:
-                feed = json.load(gz)
-            for item in feed.get("CVE_Items", []):
-                rec = _parse_nvd_item(item)
+            for vuln in resp.json().get("vulnerabilities", []):
+                rec = _parse_nvd_item_v2(vuln)
                 if rec:
                     records.append(rec)
         except Exception as exc:
-            print(f"  [WARN] {year}: {exc}")
+            print(f"  [WARN] startIndex={start}: {exc}")
+        if start + NVD_PAGE_SIZE < total:
+            time.sleep(NVD_RATE_SLEEP)   # respect free-tier rate limit
+
     n = _write_jsonl(out, records)
     print(f"[NVD] {n} records written")
 
@@ -183,7 +208,7 @@ def ingest_ghsa():
     if not GHSA_REPO_DIR.exists():
         print(f"  cloning {GHSA_REPO} (shallow) ...")
         subprocess.run(
-            ["git", "clone", "--depth=1", GHSA_REPO, str(GHSA_REPO_DIR)],
+            ["git", "clone", "--depth=1", "--template=", GHSA_REPO, str(GHSA_REPO_DIR)],
             check=True,
         )
     else:
