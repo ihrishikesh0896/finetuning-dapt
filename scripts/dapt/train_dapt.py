@@ -39,7 +39,6 @@ from transformers import (
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 MODEL_ID = "Qwen/Qwen2.5-Coder-3B"
-TOKENIZED_DATA = Path("data/dapt_tokenized")
 CHECKPOINT_DIR = Path("models/dapt_checkpoints")
 ADAPTER_DIR = Path("models/dapt_adapter")
 
@@ -74,6 +73,14 @@ def _parse_args():
     p.add_argument("--grad-accum", type=int,   default=8)
     p.add_argument("--fp16",       action="store_true", help="Force fp16 (e.g. on T4)")
     p.add_argument("--save-steps", type=int,   default=1_000)
+    p.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Path to tokenized HF dataset. Defaults to data/dapt_tokenized. "
+             "Use a writable path when the default is a read-only symlink "
+             "(e.g. /kaggle/working/dapt_tokenized_rw).",
+    )
     return p.parse_args()
 
 
@@ -88,6 +95,16 @@ def main():
         load_dtype, use_bf16, use_fp16 = torch.float16, False, True
     print(f"Precision : {'bf16' if use_bf16 else 'fp16' if use_fp16 else 'fp32'}")
     print(f"max_steps : {args.max_steps}  batch : {args.batch_size}  grad_accum : {args.grad_accum}")
+
+    # Resolve data directory — prefer explicit arg, then env var, then default
+    data_dir = Path(
+        args.data_dir
+        or os.environ.get("DAPT_DATA_DIR", "data/dapt_tokenized")
+    )
+    if not data_dir.exists():
+        print(f"ERROR: tokenized dataset not found at {data_dir}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Loading tokenized dataset from {data_dir}")
 
     # Model
     print(f"Loading base model: {MODEL_ID}")
@@ -104,8 +121,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
 
-    print(f"Loading tokenized dataset from {TOKENIZED_DATA}")
-    ds = load_from_disk(str(TOKENIZED_DATA))
+    ds = load_from_disk(str(data_dir))
     split = ds.train_test_split(test_size=0.05, seed=42)
     train_ds, eval_ds = split["train"], split["test"]
     print(f"  train={len(train_ds)}  eval={len(eval_ds)}")
