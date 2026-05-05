@@ -148,7 +148,8 @@ def main():
         report_to="none",
         dataloader_num_workers=4,
         gradient_checkpointing=True,
-        ddp_find_unused_parameters=False,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        ddp_find_unused_parameters=True,
         seed=42,
     )
 
