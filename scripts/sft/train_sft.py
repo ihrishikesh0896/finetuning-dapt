@@ -86,8 +86,10 @@ def _parse_args():
     p.add_argument("--max-steps",  type=int,  default=2_000)
     p.add_argument("--batch-size", type=int,  default=2)
     p.add_argument("--grad-accum", type=int,  default=8)
-    p.add_argument("--fp16",       action="store_true", help="Force fp16 (e.g. on T4)")
-    p.add_argument("--eval-steps", type=int,  default=200)
+    p.add_argument("--fp16",        action="store_true", help="Force fp16 (e.g. on T4)")
+    p.add_argument("--eval-steps",  type=int,  default=200)
+    p.add_argument("--num-workers", type=int,  default=2,
+                   help="Dataloader workers. Use 0 on Kaggle/read-only filesystems.")
     return p.parse_args()
 
 
@@ -107,7 +109,7 @@ def main():
     print(f"Loading base model: {MODEL_ID}")
     base = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=load_dtype,
+        dtype=load_dtype,
         trust_remote_code=True,
         use_cache=False,
     )
@@ -158,6 +160,7 @@ def main():
         logging_steps=50,
         gradient_checkpointing=True,
         ddp_find_unused_parameters=False,
+        dataloader_num_workers=args.num_workers,
         report_to="none",
         seed=42,
         dataset_kwargs={"skip_prepare_dataset": False},

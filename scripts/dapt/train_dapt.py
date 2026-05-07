@@ -71,15 +71,16 @@ def _parse_args():
     p.add_argument("--max-steps",  type=int,   default=10_000)
     p.add_argument("--batch-size", type=int,   default=4)
     p.add_argument("--grad-accum", type=int,   default=8)
-    p.add_argument("--fp16",       action="store_true", help="Force fp16 (e.g. on T4)")
-    p.add_argument("--save-steps", type=int,   default=1_000)
+    p.add_argument("--fp16",        action="store_true", help="Force fp16 (e.g. on T4)")
+    p.add_argument("--save-steps",  type=int,   default=1_000)
+    p.add_argument("--num-workers", type=int,   default=2,
+                   help="Dataloader workers. Use 0 on Kaggle/read-only filesystems.")
     p.add_argument(
         "--data-dir",
         type=str,
         default=None,
         help="Path to tokenized HF dataset. Defaults to data/dapt_tokenized. "
-             "Use a writable path when the default is a read-only symlink "
-             "(e.g. /kaggle/working/dapt_tokenized_rw).",
+             "Must be a writable path — not a symlink to /kaggle/input/.",
     )
     return p.parse_args()
 
@@ -110,7 +111,7 @@ def main():
     print(f"Loading base model: {MODEL_ID}")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=load_dtype,
+        dtype=load_dtype,
         trust_remote_code=True,
         use_cache=False,
     )
@@ -146,7 +147,7 @@ def main():
         eval_steps=args.save_steps,
         load_best_model_at_end=False,
         report_to="none",
-        dataloader_num_workers=4,
+        dataloader_num_workers=args.num_workers,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         ddp_find_unused_parameters=True,
