@@ -150,7 +150,7 @@ def main():
         dataloader_num_workers=args.num_workers,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        ddp_find_unused_parameters=True,
+        ddp_find_unused_parameters=False,
         seed=42,
     )
 
