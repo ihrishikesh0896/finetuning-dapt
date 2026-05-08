@@ -82,6 +82,13 @@ def _parse_args():
         help="Path to tokenized HF dataset. Defaults to data/dapt_tokenized. "
              "Must be a writable path — not a symlink to /kaggle/input/.",
     )
+    p.add_argument(
+        "--max-train-length",
+        type=int,
+        default=None,
+        help="Drop sequences longer than this many tokens before training. "
+             "Use 512 on T4 to avoid padding waste from short CVE text padded to 2048.",
+    )
     return p.parse_args()
 
 
@@ -95,7 +102,7 @@ def main():
     if args.fp16:                          # explicit override for T4 / older GPUs
         load_dtype, use_bf16, use_fp16 = torch.float16, False, True
     print(f"Precision : {'bf16' if use_bf16 else 'fp16' if use_fp16 else 'fp32'}")
-    print(f"max_steps : {args.max_steps}  batch : {args.batch_size}  grad_accum : {args.grad_accum}")
+    print(f"max_steps : {args.max_steps}  batch : {args.batch_size}  grad_accum : {args.grad_accum}  max_train_length : {args.max_train_length or 'none'}")
 
     # Resolve data directory — prefer explicit arg, then env var, then default
     data_dir = Path(
@@ -123,6 +130,15 @@ def main():
     tokenizer.pad_token = tokenizer.eos_token
 
     ds = load_from_disk(str(data_dir))
+
+    if args.max_train_length is not None:
+        before = len(ds)
+        ds = ds.filter(
+            lambda ex: len(ex["input_ids"]) <= args.max_train_length,
+            num_proc=1,
+        )
+        print(f"  Filtered to max_train_length={args.max_train_length}: {before} → {len(ds)} sequences")
+
     split = ds.train_test_split(test_size=0.05, seed=42)
     train_ds, eval_ds = split["train"], split["test"]
     print(f"  train={len(train_ds)}  eval={len(eval_ds)}")
