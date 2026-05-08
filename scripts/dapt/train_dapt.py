@@ -136,6 +136,7 @@ def main():
         ds = ds.filter(
             lambda ex: len(ex["input_ids"]) <= args.max_train_length,
             num_proc=1,
+            keep_in_memory=True,   # both DDP ranks run this; skip disk cache to avoid file-lock deadlock
         )
         print(f"  Filtered to max_train_length={args.max_train_length}: {before} → {len(ds)} sequences")
 
